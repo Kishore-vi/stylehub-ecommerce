@@ -1,23 +1,77 @@
+
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
-import { products } from "./data/products";
 import { useCart } from "./CartContext";
 
 const categories = ["All", "Men", "Women"];
+
+type Product = {
+  id: number;
+  name: string;
+  category: string;
+  price: number;
+  image: string;
+  label?: string | null;
+  description: string;
+};
 
 function HomeContent() {
   const searchParams = useSearchParams();
   const categoryParam = searchParams.get("category");
 
-  const [overrideCategory, setOverrideCategory] = useState<string | null>(null);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [overrideCategory, setOverrideCategory] = useState<string | null>(
+    null
+  );
   const [search, setSearch] = useState("");
   const [wishlist, setWishlist] = useState<number[]>([]);
 
   const { addToCart, openCart } = useCart();
+
+  // Fetch products from the database through our API
+  useEffect(() => {
+    async function loadProducts() {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const response = await fetch("/api/products", {
+          cache: "no-store",
+        });
+
+        if (!response.ok) {
+          throw new Error("Unable to load products. Please try again.");
+        }
+
+        const data: Product[] = await response.json();
+
+        if (!Array.isArray(data)) {
+          throw new Error("Invalid product data received.");
+        }
+
+        setProducts(data);
+      } catch (err) {
+        console.error("Product loading error:", err);
+
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Something went wrong while loading products."
+        );
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadProducts();
+  }, []);
 
   const activeCategory =
     overrideCategory ??
@@ -44,7 +98,7 @@ function HomeContent() {
     );
   }
 
-  function handleQuickAdd(product: (typeof products)[0]) {
+  function handleQuickAdd(product: Product) {
     addToCart({
       id: product.id,
       name: product.name,
@@ -54,6 +108,7 @@ function HomeContent() {
       size: "M",
       quantity: 1,
     });
+
     openCart();
   }
 
@@ -70,7 +125,9 @@ function HomeContent() {
             <h1 className="max-w-xl text-5xl font-black leading-[1.05] tracking-tight sm:text-7xl">
               Wear your
               <br />
-              <span className="font-serif font-normal italic">own story.</span>
+              <span className="font-serif font-normal italic">
+                own story.
+              </span>
             </h1>
 
             <p className="mt-6 max-w-md text-base leading-7 text-neutral-600">
@@ -88,15 +145,21 @@ function HomeContent() {
             <div className="mt-10 flex gap-8 border-t border-neutral-300 pt-6">
               <div>
                 <p className="text-xl font-bold">New</p>
-                <p className="mt-1 text-xs text-neutral-500">Seasonal drops</p>
+                <p className="mt-1 text-xs text-neutral-500">
+                  Seasonal drops
+                </p>
               </div>
               <div>
                 <p className="text-xl font-bold">Easy</p>
-                <p className="mt-1 text-xs text-neutral-500">Everyday comfort</p>
+                <p className="mt-1 text-xs text-neutral-500">
+                  Everyday comfort
+                </p>
               </div>
               <div>
                 <p className="text-xl font-bold">You</p>
-                <p className="mt-1 text-xs text-neutral-500">Your own style</p>
+                <p className="mt-1 text-xs text-neutral-500">
+                  Your own style
+                </p>
               </div>
             </div>
           </div>
@@ -110,6 +173,7 @@ function HomeContent() {
               priority
               className="h-[360px] w-full object-cover sm:h-[500px] lg:h-[570px]"
             />
+
             <div className="absolute bottom-5 left-5 bg-white px-5 py-4 shadow-lg">
               <p className="text-xs uppercase tracking-widest text-neutral-500">
                 Style note 01
@@ -145,7 +209,7 @@ function HomeContent() {
                 key={item}
                 type="button"
                 onClick={() => setOverrideCategory(item)}
-                className={`rounded-full border px-5 py-2.5 text-sm font-semibold transition cursor-pointer ${
+                className={`cursor-pointer rounded-full border px-5 py-2.5 text-sm font-semibold transition ${
                   activeCategory === item
                     ? "border-neutral-950 bg-neutral-950 text-white"
                     : "border-neutral-300 hover:border-neutral-950"
@@ -169,8 +233,32 @@ function HomeContent() {
           />
         </div>
 
-        {/* Products Grid */}
-        {filteredProducts.length === 0 ? (
+        {/* Loading, Error and Products */}
+        {loading ? (
+          <div
+            className="py-16 text-center"
+            role="status"
+            aria-live="polite"
+          >
+            <p className="text-sm font-semibold text-neutral-500">
+              Loading products...
+            </p>
+          </div>
+        ) : error ? (
+          <div className="border border-dashed border-neutral-300 py-16 text-center">
+            <p className="text-lg font-semibold">
+              Unable to load products
+            </p>
+            <p className="mt-2 text-sm text-neutral-500">{error}</p>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="mt-4 cursor-pointer text-sm font-bold underline hover:text-orange-600"
+            >
+              Try again
+            </button>
+          </div>
+        ) : filteredProducts.length === 0 ? (
           <div className="border border-dashed border-neutral-300 py-16 text-center">
             <p className="text-lg font-semibold">No products found</p>
             <p className="mt-2 text-sm text-neutral-500">
@@ -182,7 +270,7 @@ function HomeContent() {
                 setSearch("");
                 setOverrideCategory("All");
               }}
-              className="mt-4 text-sm font-bold underline cursor-pointer hover:text-orange-600"
+              className="mt-4 cursor-pointer text-sm font-bold underline hover:text-orange-600"
             >
               Clear filters
             </button>
@@ -192,7 +280,10 @@ function HomeContent() {
             {filteredProducts.map((product) => (
               <article key={product.id} className="group">
                 <div className="relative overflow-hidden bg-neutral-100">
-                  <Link href={`/products/${product.id}`} className="block">
+                  <Link
+                    href={`/products/${product.id}`}
+                    className="block"
+                  >
                     <Image
                       src={product.image}
                       alt={product.name}
@@ -216,7 +307,7 @@ function HomeContent() {
                         ? `Remove ${product.name} from wishlist`
                         : `Add ${product.name} to wishlist`
                     }
-                    className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full bg-white text-lg transition hover:bg-neutral-950 hover:text-white cursor-pointer shadow-xs"
+                    className="absolute right-3 top-3 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-white text-lg shadow-xs transition hover:bg-neutral-950 hover:text-white"
                   >
                     {wishlist.includes(product.id) ? "♥" : "♡"}
                   </button>
@@ -224,7 +315,7 @@ function HomeContent() {
                   <button
                     type="button"
                     onClick={() => handleQuickAdd(product)}
-                    className="absolute bottom-0 left-0 w-full bg-neutral-950/95 py-3 text-xs font-bold tracking-wider text-white transition hover:bg-orange-700 sm:translate-y-full sm:group-hover:translate-y-0 cursor-pointer"
+                    className="absolute bottom-0 left-0 w-full cursor-pointer bg-neutral-950/95 py-3 text-xs font-bold tracking-wider text-white transition hover:bg-orange-700 sm:translate-y-full sm:group-hover:translate-y-0"
                   >
                     + ADD TO BAG
                   </button>
@@ -236,11 +327,12 @@ function HomeContent() {
                       {product.category}
                     </p>
                     <Link href={`/products/${product.id}`}>
-                      <h3 className="mt-1 text-sm font-semibold hover:text-orange-600 transition sm:text-base">
+                      <h3 className="mt-1 text-sm font-semibold transition hover:text-orange-600 sm:text-base">
                         {product.name}
                       </h3>
                     </Link>
                   </div>
+
                   <p className="shrink-0 text-sm font-bold">
                     ₹{product.price.toLocaleString("en-IN")}
                   </p>
@@ -282,7 +374,9 @@ export default function Home() {
     <Suspense
       fallback={
         <div className="flex min-h-screen items-center justify-center bg-white">
-          <p className="text-sm font-semibold text-neutral-400">Loading catalog...</p>
+          <p className="text-sm font-semibold text-neutral-400">
+            Loading catalog...
+          </p>
         </div>
       }
     >

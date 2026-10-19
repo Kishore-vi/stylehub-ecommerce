@@ -1,15 +1,38 @@
+
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
-import { products } from "@/app/data/products";
 import { useCart } from "@/app/CartContext";
+
+type ProductSize = {
+  size: string;
+  stock: number;
+};
+
+type Product = {
+  id: number;
+  name: string;
+  category: string;
+  price: number;
+  image: string;
+  label?: string | null;
+  description: string;
+  sizes: ProductSize[];
+};
+
+const AVAILABLE_SIZES = ["S", "M", "L", "XL"];
+const MAX_QUANTITY = 10;
 
 function ProductDetailsContent() {
   const params = useParams<{ id: string }>();
   const { addToCart, openCart } = useCart();
+
+  const [product, setProduct] = useState<Product | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   const [selectedSize, setSelectedSize] = useState("");
   const [quantity, setQuantity] = useState(1);
@@ -17,33 +40,81 @@ function ProductDetailsContent() {
   const [sizeError, setSizeError] = useState(false);
 
   const productId = Number(params.id);
-  const product = products.find((item) => item.id === productId);
 
-  if (!product) {
-    return (
-      <div className="flex min-h-[60vh] flex-col items-center justify-center p-6 text-center">
-        <h1 className="text-3xl font-bold text-neutral-900">
-          Product Not Found
-        </h1>
+  useEffect(() => {
+    let cancelled = false;
 
-        <p className="mt-3 text-neutral-600">
-          Sorry, we couldn&apos;t find this product in our collection.
-        </p>
+    async function loadProduct() {
+      if (!Number.isInteger(productId) || productId <= 0) {
+        setLoading(false);
+        return;
+      }
 
-        <Link
-          href="/"
-          className="mt-6 rounded-lg bg-black px-6 py-3 font-semibold text-white hover:bg-neutral-800 transition"
-        >
-          Back to Home
-        </Link>
-      </div>
-    );
-  }
+      try {
+        setLoading(true);
+        setLoadError(false);
 
-  const currentProduct = product;
+        const response = await fetch("/api/products", {
+          cache: "no-store",
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to fetch products");
+        }
+
+        const products: Product[] = await response.json();
+
+        const foundProduct = products.find(
+          (item) => item.id === productId
+        );
+
+        if (!cancelled) {
+          setProduct(foundProduct ?? null);
+          setSelectedSize("");
+          setQuantity(1);
+          setAddedMessage(false);
+        }
+      } catch (error) {
+        console.error("Product details loading error:", error);
+
+        if (!cancelled) {
+          setLoadError(true);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    loadProduct();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [productId]);
+
+  const selectedSizeStock =
+    product?.sizes.find(
+      (item) => item.size === selectedSize
+    )?.stock ?? 0;
+
+  const quantityLimit = Math.min(
+    MAX_QUANTITY,
+    selectedSizeStock
+  );
 
   function handleAddToCart() {
-    if (!selectedSize) {
+    if (!product || !selectedSize) {
+      setSizeError(true);
+      return;
+    }
+
+    // Check stock before adding the item.
+    if (
+      selectedSizeStock <= 0 ||
+      quantity > quantityLimit
+    ) {
       setSizeError(true);
       return;
     }
@@ -51,40 +122,87 @@ function ProductDetailsContent() {
     setSizeError(false);
 
     addToCart({
-      id: currentProduct.id,
-      name: currentProduct.name,
-      category: currentProduct.category,
-      price: currentProduct.price,
-      image: currentProduct.image,
+      id: product.id,
+      name: product.name,
+      category: product.category,
+      price: product.price,
+      image: product.image,
       size: selectedSize,
       quantity,
     });
 
     setAddedMessage(true);
     openCart();
-
-    setTimeout(() => {
-      setAddedMessage(false);
-    }, 4000);
   }
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center bg-neutral-50">
+        <p className="text-sm font-semibold text-neutral-500">
+          Loading product details...
+        </p>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="flex min-h-[60vh] flex-col items-center justify-center p-6 text-center">
+        <h1 className="text-2xl font-bold text-neutral-900">
+          Unable to load product
+        </h1>
+        <p className="mt-3 text-neutral-600">
+          Please check your connection and try again.
+        </p>
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="mt-6 rounded-lg bg-black px-6 py-3 font-semibold text-white hover:bg-neutral-800"
+        >
+          Try Again
+        </button>
+      </div>
+    );
+  }
+
+  if (!product) {
+    return (
+      <div className="flex min-h-[60vh] flex-col items-center justify-center p-6 text-center">
+        <h1 className="text-3xl font-bold text-neutral-900">
+          Product Not Found
+        </h1>
+        <p className="mt-3 text-neutral-600">
+          Sorry, we couldn&apos;t find this product in our collection.
+        </p>
+        <Link
+          href="/"
+          className="mt-6 rounded-lg bg-black px-6 py-3 font-semibold text-white transition hover:bg-neutral-800"
+        >
+          Back to Home
+        </Link>
+      </div>
+    );
+  }
+
+  const hasAnyStock = product.sizes.some(
+    (item) => item.stock > 0
+  );
 
   return (
     <div className="bg-neutral-50 px-4 py-8 sm:px-8 lg:px-16">
-      {/* Back to Home Link */}
       <Link
         href="/#collection"
-        className="mb-8 inline-flex items-center gap-2 text-sm font-semibold text-neutral-600 hover:text-orange-600 transition"
+        className="mb-8 inline-flex items-center gap-2 text-sm font-semibold text-neutral-600 transition hover:text-orange-600"
       >
         ← Back to Shop
       </Link>
 
-      {/* Product Details Card */}
       <div className="mx-auto grid max-w-6xl gap-10 rounded-2xl bg-white p-5 shadow-sm sm:p-8 md:grid-cols-2">
         {/* Product Image */}
         <div className="overflow-hidden rounded-xl bg-neutral-100">
           <Image
-            src={currentProduct.image}
-            alt={currentProduct.name}
+            src={product.image}
+            alt={product.name}
             width={800}
             height={900}
             priority
@@ -95,53 +213,107 @@ function ProductDetailsContent() {
         {/* Product Information */}
         <div className="flex flex-col justify-center py-3">
           <p className="text-sm font-bold uppercase tracking-widest text-orange-600">
-            {currentProduct.category}
+            {product.category}
           </p>
 
           <h1 className="mt-3 text-3xl font-extrabold text-neutral-900 sm:text-4xl">
-            {currentProduct.name}
+            {product.name}
           </h1>
 
           <p className="mt-4 text-2xl font-bold text-neutral-900">
-            ₹{currentProduct.price.toLocaleString("en-IN")}
+            ₹{product.price.toLocaleString("en-IN")}
           </p>
 
           <p className="mt-5 leading-7 text-neutral-600">
-            {currentProduct.description}
+            {product.description}
           </p>
 
-          {/* Size Selection */}
+          {/* Size Selection and Stock */}
           <div className="mt-8">
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="font-bold text-neutral-900">Select Size</h2>
+              <h2 className="font-bold text-neutral-900">
+                Select Size
+              </h2>
 
-              <span className={`text-xs ${sizeError ? "font-bold text-red-500" : "text-neutral-500"}`}>
-                {sizeError ? "Please choose a size" : "Required"}
+              <span
+                className={`text-xs ${
+                  sizeError
+                    ? "font-bold text-red-500"
+                    : "text-neutral-500"
+                }`}
+              >
+                {sizeError
+                  ? !selectedSize
+                    ? "Please choose a size"
+                    : "Check size availability"
+                  : "Required"}
               </span>
             </div>
 
             <div className="flex flex-wrap gap-3">
-              {["S", "M", "L", "XL"].map((size) => (
-                <button
-                  key={size}
-                  type="button"
-                  onClick={() => {
-                    setSelectedSize(size);
-                    setSizeError(false);
-                  }}
-                  className={`h-12 w-14 rounded-lg border font-semibold transition cursor-pointer ${
-                    selectedSize === size
-                      ? "border-orange-600 bg-orange-600 text-white"
-                      : "border-neutral-300 bg-white text-neutral-800 hover:border-orange-600"
-                  }`}
-                >
-                  {size}
-                </button>
-              ))}
+              {AVAILABLE_SIZES.map((size) => {
+                const stock =
+                  product.sizes.find(
+                    (item) => item.size === size
+                  )?.stock ?? 0;
+
+                const outOfStock = stock <= 0;
+                const isSelected = selectedSize === size;
+
+                return (
+                  <button
+                    key={size}
+                    type="button"
+                    disabled={outOfStock}
+                    onClick={() => {
+                      setSelectedSize(size);
+                      setQuantity(1);
+                      setSizeError(false);
+                      setAddedMessage(false);
+                    }}
+                    title={
+                      outOfStock
+                        ? `${size} is out of stock`
+                        : `${stock} available`
+                    }
+                    className={`flex min-h-12 min-w-14 flex-col items-center justify-center rounded-lg border px-3 py-2 transition ${
+                      outOfStock
+                        ? "cursor-not-allowed border-neutral-200 bg-neutral-100 text-neutral-400 line-through"
+                        : isSelected
+                          ? "cursor-pointer border-orange-600 bg-orange-600 text-white"
+                          : "cursor-pointer border-neutral-300 bg-white text-neutral-800 hover:border-orange-600"
+                    }`}
+                  >
+                    <span className="font-semibold">{size}</span>
+                    <span className="text-[10px]">
+                      {outOfStock ? "Sold out" : `${stock} left`}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
+
+            {!hasAnyStock && (
+              <p className="mt-3 text-sm font-semibold text-red-600">
+                This product is currently out of stock.
+              </p>
+            )}
+
+            {selectedSize && selectedSizeStock > 0 && (
+              <p className="mt-3 text-sm text-neutral-600">
+                {selectedSizeStock} item(s) available in size{" "}
+                {selectedSize}.
+              </p>
+            )}
+
+            {selectedSize && selectedSizeStock <= 0 && (
+              <p className="mt-3 text-sm text-red-600">
+                This size is out of stock. Please choose another size.
+              </p>
+            )}
           </div>
 
-          {/* Quantity Selection */}
+          {/* Quantity */}
           <div className="mt-7">
             <h2 className="mb-3 font-bold text-neutral-900">
               Quantity
@@ -150,11 +322,14 @@ function ProductDetailsContent() {
             <div className="flex w-fit items-center overflow-hidden rounded-lg border border-neutral-300">
               <button
                 type="button"
-                onClick={() =>
-                  setQuantity((previous) => Math.max(1, previous - 1))
-                }
-                disabled={quantity <= 1}
-                className="h-11 w-12 text-xl hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer"
+                onClick={() => {
+                  setQuantity((previous) =>
+                    Math.max(1, previous - 1)
+                  );
+                  setAddedMessage(false);
+                }}
+                disabled={quantity <= 1 || quantityLimit <= 0}
+                className="h-11 w-12 cursor-pointer text-xl hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-40"
                 aria-label="Decrease quantity"
               >
                 −
@@ -166,11 +341,17 @@ function ProductDetailsContent() {
 
               <button
                 type="button"
-                onClick={() =>
-                  setQuantity((previous) => Math.min(10, previous + 1))
+                onClick={() => {
+                  setQuantity((previous) =>
+                    Math.min(quantityLimit, previous + 1)
+                  );
+                  setAddedMessage(false);
+                }}
+                disabled={
+                  quantityLimit <= 0 ||
+                  quantity >= quantityLimit
                 }
-                disabled={quantity >= 10}
-                className="h-11 w-12 text-xl hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer"
+                className="h-11 w-12 cursor-pointer text-xl hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-40"
                 aria-label="Increase quantity"
               >
                 +
@@ -178,7 +359,11 @@ function ProductDetailsContent() {
             </div>
 
             <p className="mt-2 text-xs text-neutral-500">
-              Maximum 10 items per selection.
+              {selectedSize
+                ? quantityLimit > 0
+                  ? `Maximum ${quantityLimit} item(s) for this size.`
+                  : "Select an available size to choose quantity."
+                : "Select a size to check available quantity."}
             </p>
           </div>
 
@@ -189,27 +374,36 @@ function ProductDetailsContent() {
             </span>
 
             <span className="text-xl font-extrabold text-neutral-900">
-              ₹{(currentProduct.price * quantity).toLocaleString("en-IN")}
+              ₹{(product.price * quantity).toLocaleString("en-IN")}
             </span>
           </div>
 
-          {/* Add to Bag Button */}
+          {/* Add to Bag */}
           <button
             type="button"
             onClick={handleAddToCart}
-            className="mt-6 w-full rounded-xl bg-orange-600 px-6 py-4 font-bold text-white transition hover:bg-orange-700 cursor-pointer"
+            disabled={!hasAnyStock}
+            className="mt-6 w-full cursor-pointer rounded-xl bg-orange-600 px-6 py-4 font-bold text-white transition hover:bg-orange-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
           >
-            {addedMessage ? "✓ ADDED TO BAG!" : `ADD TO BAG — ₹${(currentProduct.price * quantity).toLocaleString("en-IN")}`}
+            {!hasAnyStock
+              ? "OUT OF STOCK"
+              : addedMessage
+                ? "✓ ADDED TO BAG!"
+                : `ADD TO BAG — ₹${(
+                    product.price * quantity
+                  ).toLocaleString("en-IN")}`}
           </button>
 
-          {/* Confirmation Message with View Bag trigger */}
           {addedMessage && (
             <div className="mt-3 flex items-center justify-between rounded-xl border border-green-200 bg-green-50 p-3 text-sm text-green-800">
-              <span className="font-medium">✓ Added to your shopping bag!</span>
+              <span className="font-medium">
+                ✓ Added to your shopping bag!
+              </span>
+
               <button
                 type="button"
                 onClick={openCart}
-                className="font-bold underline hover:text-green-950 cursor-pointer"
+                className="cursor-pointer font-bold underline hover:text-green-950"
               >
                 View Bag
               </button>
